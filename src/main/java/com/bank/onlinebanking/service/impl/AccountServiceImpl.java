@@ -1,6 +1,7 @@
 package com.bank.onlinebanking.service.impl;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import org.springframework.stereotype.Service;
@@ -16,6 +17,7 @@ import com.bank.onlinebanking.entity.Transaction;
 import com.bank.onlinebanking.entity.TransactionType;
 import com.bank.onlinebanking.entity.User;
 import com.bank.onlinebanking.exception.ResourceNotFoundException;
+import com.bank.onlinebanking.exception.TransferLimitExceededException;
 import com.bank.onlinebanking.repository.AccountRepository;
 import com.bank.onlinebanking.repository.TransactionRepository;
 import com.bank.onlinebanking.repository.UserRepository;
@@ -29,6 +31,9 @@ public class AccountServiceImpl implements AccountService {
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final AuditLogService auditLogService;
+
+    private static final BigDecimal MAX_SINGLE_DEPOSIT = new BigDecimal("50000");
+    private static final BigDecimal MAX_DAILY_DEPOSIT = new BigDecimal("100000");
 
     public AccountServiceImpl(UserRepository userRepository,
                               AccountRepository accountRepository,
@@ -55,7 +60,25 @@ public class AccountServiceImpl implements AccountService {
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Account not found."));
 
-        BigDecimal newBalance = account.getBalance().add(request.getAmount());
+        BigDecimal amount = request.getAmount();
+
+        if (amount.compareTo(MAX_SINGLE_DEPOSIT) > 0) {
+            throw new TransferLimitExceededException(
+                    "Single deposit cannot exceed \u20b950,000.");
+        }
+
+        LocalDateTime startOfToday = LocalDate.now().atStartOfDay();
+        BigDecimal alreadyDepositedToday =
+                transactionRepository.sumDepositedSince(account, startOfToday);
+
+        if (alreadyDepositedToday.add(amount).compareTo(MAX_DAILY_DEPOSIT) > 0) {
+            throw new TransferLimitExceededException(
+                    "This deposit would exceed your \u20b91,00,000 daily deposit limit. "
+                            + "You have \u20b9" + MAX_DAILY_DEPOSIT.subtract(alreadyDepositedToday)
+                            + " remaining today.");
+        }
+
+        BigDecimal newBalance = account.getBalance().add(amount);
 
         account.setBalance(newBalance);
 

@@ -1,11 +1,13 @@
 package com.bank.onlinebanking.service.impl;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,10 +19,13 @@ import com.bank.onlinebanking.entity.Transaction;
 import com.bank.onlinebanking.entity.TransactionType;
 import com.bank.onlinebanking.entity.User;
 import com.bank.onlinebanking.exception.InsufficientBalanceException;
+import com.bank.onlinebanking.exception.InvalidPasswordException;
 import com.bank.onlinebanking.exception.ResourceNotFoundException;
+import com.bank.onlinebanking.exception.TransferLimitExceededException;
 import com.bank.onlinebanking.repository.AccountRepository;
 import com.bank.onlinebanking.repository.TransactionRepository;
 import com.bank.onlinebanking.repository.UserRepository;
+import com.bank.onlinebanking.service.AuditLogService;
 import com.bank.onlinebanking.service.TransactionService;
 
 @Service
@@ -29,15 +34,27 @@ public class TransactionServiceImpl implements TransactionService {
     private final UserRepository userRepository;
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final AuditLogService auditLogService;
+
+    private static final BigDecimal PASSWORD_CONFIRMATION_THRESHOLD = new BigDecimal("15000");
+    private static final BigDecimal MAX_SINGLE_TRANSFER = new BigDecimal("25000");
+    private static final BigDecimal MAX_DAILY_TRANSFER = new BigDecimal("50000");
+    private static final BigDecimal MAX_SINGLE_WITHDRAWAL = new BigDecimal("10000");
+    private static final BigDecimal MAX_DAILY_WITHDRAWAL = new BigDecimal("20000");
 
     public TransactionServiceImpl(
             UserRepository userRepository,
             AccountRepository accountRepository,
-            TransactionRepository transactionRepository) {
+            TransactionRepository transactionRepository,
+            PasswordEncoder passwordEncoder,
+            AuditLogService auditLogService) {
 
         this.userRepository = userRepository;
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.auditLogService = auditLogService;
     }
 
     // =========================================================
@@ -59,6 +76,22 @@ public class TransactionServiceImpl implements TransactionService {
                         new ResourceNotFoundException("Account not found."));
 
         BigDecimal amount = request.getAmount();
+
+        if (amount.compareTo(MAX_SINGLE_WITHDRAWAL) > 0) {
+            throw new TransferLimitExceededException(
+                    "Single withdrawal cannot exceed \u20b910,000.");
+        }
+
+        LocalDateTime startOfTodayWithdraw = LocalDate.now().atStartOfDay();
+        BigDecimal alreadyWithdrawnToday =
+                transactionRepository.sumWithdrawnSince(account, startOfTodayWithdraw);
+
+        if (alreadyWithdrawnToday.add(amount).compareTo(MAX_DAILY_WITHDRAWAL) > 0) {
+            throw new TransferLimitExceededException(
+                    "This withdrawal would exceed your \u20b920,000 daily withdrawal limit. "
+                            + "You have \u20b9" + MAX_DAILY_WITHDRAWAL.subtract(alreadyWithdrawnToday)
+                            + " remaining today.");
+        }
 
         if (account.getBalance().compareTo(amount) < 0) {
             throw new InsufficientBalanceException(
@@ -96,6 +129,13 @@ public class TransactionServiceImpl implements TransactionService {
         Transaction savedTransaction =
                 transactionRepository.save(transaction);
 
+        // ================= AUDIT LOG =================
+
+        auditLogService.saveLog(
+                email,
+                "WITHDRAW",
+                "Withdrew \u20b9" + amount + " from your account.");
+
         return convertToResponse(savedTransaction);
     }
 
@@ -129,6 +169,37 @@ public class TransactionServiceImpl implements TransactionService {
                                         "Receiver account not found."));
 
         BigDecimal amount = request.getAmount();
+
+        if (amount.compareTo(MAX_SINGLE_TRANSFER) > 0) {
+            throw new TransferLimitExceededException(
+                    "Single transfer cannot exceed \u20b925,000.");
+        }
+
+        LocalDateTime startOfToday = LocalDate.now().atStartOfDay();
+        BigDecimal alreadyTransferredToday =
+                transactionRepository.sumTransferredOutSince(senderAccount, startOfToday);
+
+        if (alreadyTransferredToday.add(amount).compareTo(MAX_DAILY_TRANSFER) > 0) {
+            throw new TransferLimitExceededException(
+                    "This transfer would exceed your \u20b950,000 daily transfer limit. "
+                            + "You have \u20b9" + MAX_DAILY_TRANSFER.subtract(alreadyTransferredToday)
+                            + " remaining today.");
+        }
+
+        if (amount.compareTo(PASSWORD_CONFIRMATION_THRESHOLD) > 0) {
+
+            String providedPassword = request.getPassword();
+
+            if (providedPassword == null || providedPassword.isBlank()) {
+                throw new InvalidPasswordException(
+                        "Password confirmation is required for transfers above \u20b915,000.");
+            }
+
+            if (!passwordEncoder.matches(providedPassword, senderUser.getPassword())) {
+                throw new InvalidPasswordException(
+                        "Incorrect password. Transfer cancelled.");
+            }
+        }
 
         if (senderAccount.getAccountNumber()
                 .equals(receiverAccount.getAccountNumber())) {
@@ -183,6 +254,20 @@ public class TransactionServiceImpl implements TransactionService {
 
         Transaction savedTransaction =
                 transactionRepository.save(transaction);
+
+        // ================= AUDIT LOG =================
+
+        auditLogService.saveLog(
+                email,
+                "TRANSFER_OUT",
+                "Sent \u20b9" + amount + " to " + receiverAccount.getAccountNumber() + ".");
+
+        if (receiverAccount.getUser() != null) {
+            auditLogService.saveLog(
+                    receiverAccount.getUser().getEmail(),
+                    "TRANSFER_IN",
+                    "Received \u20b9" + amount + " from " + senderAccount.getAccountNumber() + ".");
+        }
 
         return convertToResponse(savedTransaction);
     }
@@ -307,6 +392,20 @@ public class TransactionServiceImpl implements TransactionService {
                 transaction.getReceiverAccount() != null
                         ? transaction.getReceiverAccount()
                                 .getAccountNumber()
+                        : null);
+
+        response.setSenderName(
+                transaction.getSenderAccount() != null
+                        && transaction.getSenderAccount().getUser() != null
+                        ? transaction.getSenderAccount().getUser()
+                                .getFullName()
+                        : null);
+
+        response.setReceiverName(
+                transaction.getReceiverAccount() != null
+                        && transaction.getReceiverAccount().getUser() != null
+                        ? transaction.getReceiverAccount().getUser()
+                                .getFullName()
                         : null);
 
         response.setAmount(
