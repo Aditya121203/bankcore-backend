@@ -39,3 +39,32 @@ public class JwtUtil {
 
     // Extract all claims
     private Claims extractAllClaims(String token) {
+
+        return Jwts.parser()
+                .verifyWith((SecretKey) getSigningKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+    }
+
+    // Extract email
+    public String extractEmail(String token) {
+        return extractAllClaims(token).getSubject();
+    }
+
+    // Check expiration
+    public boolean isTokenExpired(String token) {
+        return extractAllClaims(token)
+                .getExpiration()
+                .before(new Date());
+    }
+
+    // Validate token
+    public boolean validateToken(String token, String email) {
+
+        String extractedEmail = extractEmail(token);
+
+        return extractedEmail.equals(email)
+                && !isTokenExpired(token);
+    }
+}
