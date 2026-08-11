@@ -18,6 +18,9 @@ public class TransferRequest {
     @NotBlank(message = "Description is required")
     private String description;
 
+    // Only required when amount exceeds the confirmation threshold (currently ₹50,000)
+    private String password;
+
     public TransferRequest() {
     }
 
@@ -43,5 +46,13 @@ public class TransferRequest {
 
     public void setDescription(String description) {
         this.description = description;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
     }
 }

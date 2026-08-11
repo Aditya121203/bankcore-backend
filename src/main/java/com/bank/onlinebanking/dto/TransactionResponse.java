@@ -8,6 +8,8 @@ public class TransactionResponse {
     private Long transactionId;
     private String senderAccount;
     private String receiverAccount;
+    private String senderName;
+    private String receiverName;
     private BigDecimal amount;
     private String transactionType;
     private String description;
@@ -38,6 +40,22 @@ public class TransactionResponse {
 
     public void setReceiverAccount(String receiverAccount) {
         this.receiverAccount = receiverAccount;
+    }
+
+    public String getSenderName() {
+        return senderName;
+    }
+
+    public void setSenderName(String senderName) {
+        this.senderName = senderName;
+    }
+
+    public String getReceiverName() {
+        return receiverName;
+    }
+
+    public void setReceiverName(String receiverName) {
+        this.receiverName = receiverName;
     }
 
     public BigDecimal getAmount() {
