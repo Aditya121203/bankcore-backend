@@ -142,6 +142,10 @@ public class UserServiceImpl implements UserService {
         response.setFullName(user.getFullName());
         response.setEmail(user.getEmail());
         response.setRole(user.getRole().name());
+        response.setPhone(user.getPhone());
+        response.setAddress(user.getAddress());
+        response.setDateOfBirth(user.getDateOfBirth());
+        response.setMemberSince(user.getCreatedAt());
 
         response.setAccountNumber(account.getAccountNumber());
         response.setAccountType(account.getAccountType().name());
@@ -203,19 +207,33 @@ public class UserServiceImpl implements UserService {
                 .orElseThrow(() ->
                         new ResourceNotFoundException("User not found."));
 
-        // Check whether the new email belongs to another user
-        if (!user.getEmail().equalsIgnoreCase(request.getEmail())
-                && userRepository.existsByEmail(request.getEmail())) {
+        // Check whether the new email belongs to another user —
+        // only relevant if an email was actually sent (this edit form doesn't send one).
+        if (request.getEmail() != null && !request.getEmail().isBlank()) {
 
-            throw new UserAlreadyExistsException(
-                    "Email is already registered with another account.");
+            if (!user.getEmail().equalsIgnoreCase(request.getEmail())
+                    && userRepository.existsByEmail(request.getEmail())) {
+
+                throw new UserAlreadyExistsException(
+                        "Email is already registered with another account.");
+            }
+
+            user.setEmail(request.getEmail());
         }
 
         // Update user details
         user.setFullName(request.getFullName());
-        user.setEmail(request.getEmail());
+        user.setPhone(request.getPhone());
+        user.setAddress(request.getAddress());
+        user.setDateOfBirth(request.getDateOfBirth());
 
         userRepository.save(user);
+
+        // Audit Log
+        auditLogService.saveLog(
+                user.getEmail(),
+                "PROFILE_UPDATE",
+                "Profile details were updated.");
 
         // Fetch account
         Account account = accountRepository.findByUser(user)
@@ -228,6 +246,10 @@ public class UserServiceImpl implements UserService {
         response.setFullName(user.getFullName());
         response.setEmail(user.getEmail());
         response.setRole(user.getRole().name());
+        response.setPhone(user.getPhone());
+        response.setAddress(user.getAddress());
+        response.setDateOfBirth(user.getDateOfBirth());
+        response.setMemberSince(user.getCreatedAt());
 
         response.setAccountNumber(account.getAccountNumber());
         response.setAccountType(account.getAccountType().name());

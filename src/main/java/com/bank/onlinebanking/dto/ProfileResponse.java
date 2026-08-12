@@ -1,12 +1,18 @@
 package com.bank.onlinebanking.dto;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 public class ProfileResponse {
 
     private String fullName;
     private String email;
     private String role;
+    private String phone;
+    private String address;
+    private LocalDate dateOfBirth;
+    private LocalDateTime memberSince;
 
     private String accountNumber;
     private String accountType;
@@ -38,6 +44,38 @@ public class ProfileResponse {
 
     public void setRole(String role) {
         this.role = role;
+    }
+
+    public String getPhone() {
+        return phone;
+    }
+
+    public void setPhone(String phone) {
+        this.phone = phone;
+    }
+
+    public String getAddress() {
+        return address;
+    }
+
+    public void setAddress(String address) {
+        this.address = address;
+    }
+
+    public LocalDate getDateOfBirth() {
+        return dateOfBirth;
+    }
+
+    public void setDateOfBirth(LocalDate dateOfBirth) {
+        this.dateOfBirth = dateOfBirth;
+    }
+
+    public LocalDateTime getMemberSince() {
+        return memberSince;
+    }
+
+    public void setMemberSince(LocalDateTime memberSince) {
+        this.memberSince = memberSince;
     }
 
     public String getAccountNumber() {
